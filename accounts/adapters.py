@@ -1,5 +1,9 @@
+import os
+
 from allauth.account.adapter import DefaultAccountAdapter
+from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.contrib.auth import login
+from django.core.exceptions import PermissionDenied
 from django.urls import reverse
 
 
@@ -31,3 +35,35 @@ class StandardAccountAdapter(DefaultAccountAdapter):
 class NoNewUsersAccountAdapter(StandardAccountAdapter):
     def is_open_for_signup(self, request):
         return False
+
+
+class RestrictedDomainSocialAccountAdapter(DefaultSocialAccountAdapter):
+    """
+    Restricts social login to specific email domains.
+    Set ALLOWED_EMAIL_DOMAINS env var as comma-separated list.
+    Example: ALLOWED_EMAIL_DOMAINS=company.com,subsidiary.com
+
+    To enable, add to settings:
+    SOCIALACCOUNT_ADAPTER = "accounts.adapters.RestrictedDomainSocialAccountAdapter"
+    """
+
+    def pre_social_login(self, request, sociallogin):
+        super().pre_social_login(request, sociallogin)
+
+        allowed_domains_str = os.environ.get("ALLOWED_EMAIL_DOMAINS", "")
+        if not allowed_domains_str:
+            return  # No restriction if not configured
+
+        allowed_domains = [d.strip().lower() for d in allowed_domains_str.split(",") if d.strip()]
+        if not allowed_domains:
+            return
+
+        email = sociallogin.user.email or ""
+
+        if not email or email.count("@") != 1:
+            raise PermissionDenied("Access denied. Contact administrator if you believe this is an error.")
+
+        domain = email.split("@")[1].lower()
+
+        if domain not in allowed_domains:
+            raise PermissionDenied("Access denied. Contact administrator if you believe this is an error.")
